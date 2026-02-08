@@ -1,0 +1,59 @@
+pipeline {
+    agent any
+    environment {
+        scannerHome = tool 'mysonar';
+    }
+    stages {
+        stage ("code") {
+            steps {
+                git "https://github.com/thotanaveen97/ltibbhackathon.git"
+            }
+        }
+        stage ("CQA") {
+            steps {
+                 withSonarQubeEnv("mysonar") {
+                     sh "${scannerHome}/bin/sonar-scanner -Dsonar.projectKey=MynewProject"
+                } 
+            }
+        }
+        stage ("qualitygates") {
+            steps {
+                waitForQualityGate abortPipeline: false, credentialsId: 'mysonar credentials'
+            }
+        }
+        stage ("images") {
+            steps {
+                sh 'docker build -t dbimage database'
+                sh 'docker build -t appimage .'
+            }
+        }
+        stage ("imagescan") {
+            steps {
+                sh 'trivy image dbimage'
+                sh 'trivy image appimage'
+            }
+        }
+        stage ("imagesTag") {
+            steps {
+                sh 'docker tag dbimage naveenthotadevops/bloodyapp:dbimage'
+                sh 'docker tag appimage naveenthotadevops/bloodyapp:appimage'
+            }
+        }
+        stage ("imagesPush") {
+            steps {
+                script {
+                    withDockerRegistry(credentialsId: 'dockerhub') {
+                        sh 'docker push naveenthotadevops/bloodyapp:dbimage'
+                        sh 'docker push naveenthotadevops/bloodyapp:appimage'
+                    }
+                }
+            }
+        }
+        stage ("Deploy") {
+            steps {
+                sh 'docker run -d --name mysqldb -p 3306:3306 naveenthotadevops/bloodyapp:dbimage'
+                sh 'docker run -d --name appcont -p 1111:80 --link mysqldb:mysqlcon naveenthotadevops/bloodyapp:appimage'
+            }
+        }
+    }
+}
